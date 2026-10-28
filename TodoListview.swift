@@ -13,12 +13,25 @@ struct TodoListview: View {
     @Environment(\.modelContext) private var context
     @Query(sort: \TodoItem.createAt) private var todos: [TodoItem]
     @State private var newTitle = ""
+    @State private var selectedPriority = "Medium"
+    @State private var dueDate = Date()
+    @State private var showDatePicker = false
+    
+    private func priorityColor(for priority: String) -> Color {
+        switch priority {
+        case "High": return .red
+        case "Medium": return .orange
+        case "Low": return .gray
+        default: return .blue
+        }
+    }
     
     var body: some View {
         NavigationStack {
             List {
                 ForEach(todos) { todo in
                     HStack {
+                        // Completion Checkbox
                         Button {
                             todo.isDone.toggle()
                         } label: {
@@ -28,9 +41,31 @@ struct TodoListview: View {
                         }
                         .buttonStyle(.plain)
                         
-                        Text(todo.title)
-                            .strikethrough(todo.isDone)
-                            .foregroundStyle(todo.isDone ? .secondary : .primary)
+                        VStack(alignment: .leading, spacing: 4) {
+                            // Task Title
+                            Text(todo.title)
+                                .strikethrough(todo.isDone)
+                                .foregroundStyle(todo.isDone ? .secondary : .primary)
+                            
+                            // Due Date
+                            if let due = todo.dueDate {
+                                Text(due, style: .date)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        
+                        Spacer()
+                        
+                        // Priority Badge
+                        Text(todo.priority)
+                            .font(.caption2)
+                            .fontWeight(.bold)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(priorityColor(for: todo.priority).opacity(0.2))
+                            .foregroundStyle(priorityColor(for: todo.priority))
+                            .clipShape(Capsule())
                     }
                 }
                 .onDelete { offsets in
@@ -51,18 +86,32 @@ struct TodoListview: View {
             .navigationTitle("Todo - v1 (SwiftData)")
             .navigationBarTitleDisplayMode(.inline)
             .safeAreaInset(edge: .bottom) {
-                HStack {
-                    TextField("New todo", text: $newTitle)
-                        .textFieldStyle(.roundedBorder)
-                    
-                    Button("Add") {
-                        let trimmedTitle = newTitle.trimmingCharacters(in: .whitespaces)
-                        guard !trimmedTitle.isEmpty else { return }
+                VStack(spacing: 8) {
+                    HStack {
+                        TextField("New todo", text: $newTitle)
+                            .textFieldStyle(.roundedBorder)
                         
-                        context.insert(TodoItem(title: trimmedTitle))
-                        newTitle = ""
+                        Picker("Priority", selection: $selectedPriority) {
+                            Text("Low").tag("Low")
+                            Text("Med").tag("Medium")
+                            Text("High").tag("High")
+                        }
+                        .pickerStyle(.menu)
+                        
+                        Button("Add") {
+                            let trimmedTitle = newTitle.trimmingCharacters(in: .whitespaces)
+                            guard !trimmedTitle.isEmpty else { return }
+                            
+                            let newItem = TodoItem(
+                                title: trimmedTitle,
+                                priority: selectedPriority,
+                                dueDate: showDatePicker ? dueDate : nil
+                            )
+                            context.insert(newItem)
+                            newTitle = ""
+                        }
+                        .buttonStyle(.borderedProminent)
                     }
-                    .buttonStyle(.borderedProminent)
                 }
                 .padding()
                 .background(.bar)
