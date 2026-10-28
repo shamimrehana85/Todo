@@ -16,6 +16,7 @@ struct TodoListview: View {
     @State private var selectedPriority = "Medium"
     @State private var dueDate = Date()
     @State private var showDatePicker = false
+    @State private var taskToEdit: TodoItem? = nil
     
     private func priorityColor(for priority: String) -> Color {
         switch priority {
@@ -67,6 +68,11 @@ struct TodoListview: View {
                             .foregroundStyle(priorityColor(for: todo.priority))
                             .clipShape(Capsule())
                     }
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        // Trigger editing when tapping the row
+                        taskToEdit = todo
+                    }
                 }
                 .onDelete { offsets in
                     for index in offsets {
@@ -87,9 +93,31 @@ struct TodoListview: View {
             .navigationBarTitleDisplayMode(.inline)
             .safeAreaInset(edge: .bottom) {
                 VStack(spacing: 8) {
+                    if showDatePicker {
+                        HStack {
+                            Label("Due Date", systemImage: "calendar")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            DatePicker("", selection: $dueDate, displayedComponents: .date)
+                                .labelsHidden()
+                        }
+                        .padding(.horizontal)
+                    }
+                    
                     HStack {
                         TextField("New todo", text: $newTitle)
                             .textFieldStyle(.roundedBorder)
+                        
+                        // Calendar Toggle Button
+                        Button {
+                            showDatePicker.toggle()
+                        } label: {
+                            Image(systemName: showDatePicker ? "calendar.badge.minus" : "calendar.badge.plus")
+                                .font(.title3)
+                                .foregroundStyle(showDatePicker ? .blue : .secondary)
+                        }
+                        .buttonStyle(.plain)
                         
                         Picker("Priority", selection: $selectedPriority) {
                             Text("Low").tag("Low")
@@ -109,12 +137,61 @@ struct TodoListview: View {
                             )
                             context.insert(newItem)
                             newTitle = ""
+                            showDatePicker = false
                         }
                         .buttonStyle(.borderedProminent)
                     }
                 }
                 .padding()
                 .background(.bar)
+            }
+            .sheet(item: $taskToEdit) { task in
+                EditTaskView(task: task)
+            }
+        }
+    }
+}
+
+struct EditTaskView: View {
+    @Environment(\.dismiss) private var dismiss
+    @Bindable var task: TodoItem
+    
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Task Details") {
+                    TextField("Title", text: $task.title)
+                    
+                    Picker("Priority", selection: $task.priority) {
+                        Text("Low").tag("Low")
+                        Text("Medium").tag("Medium")
+                        Text("High").tag("High")
+                    }
+                    
+                    // Due Date Toggle and Picker for existing tasks
+                    Toggle("Set Due Date", isOn: Binding(
+                        get: { task.dueDate != nil },
+                        set: { isOn in
+                            task.dueDate = isOn ? Date() : nil
+                        }
+                    ))
+                    
+                    if task.dueDate != nil {
+                        DatePicker("Due Date", selection: Binding(
+                            get: { task.dueDate ?? Date() },
+                            set: { task.dueDate = $0 }
+                        ), displayedComponents: .date)
+                    }
+                }
+            }
+            .navigationTitle("Edit Task")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
             }
         }
     }
