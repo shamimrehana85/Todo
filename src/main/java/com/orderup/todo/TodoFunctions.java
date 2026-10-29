@@ -17,6 +17,10 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.sql.Types;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
 import java.util.Optional;
 
 /**
@@ -42,7 +46,7 @@ public class TodoFunctions {
             authLevel = AuthorizationLevel.ANONYMOUS, route = "todos")
             HttpRequestMessage<Optional<String>> request,
             final ExecutionContext context) {
-        String sql = "SELECT Id, Title, IsDone, CreatedAt FROM dbo.Todos ORDER BY CreatedAt";
+        String sql = "SELECT Id, Title, IsDone, CreatedAt, Priority, DueDate FROM dbo.Todos ORDER BY CreatedAt";
         try (Connection db = connect();
         Statement statement = db.createStatement();
         ResultSet rows = statement.executeQuery(sql)) {
@@ -74,12 +78,17 @@ public class TodoFunctions {
             return reply(request, HttpStatus.BAD_REQUEST,
                     "{\"error\":\"title is required\"}");
         }
-        String sql = "INSERT INTO dbo.Todos (Title) "
-                + "OUTPUT inserted.Id, inserted.Title, inserted.IsDone, inserted.CreatedAt "
-                + "VALUES (?)";
+        String priority = stringField(body, "priority");
+        String dueDate = stringField(body, "dueDate");
+        String sql = "INSERT INTO dbo.Todos (Title, Priority, DueDate) "
+                + "OUTPUT inserted.Id, inserted.Title, inserted.IsDone, inserted.CreatedAt, "
+                + "inserted.Priority, inserted.DueDate "
+                + "VALUES (?, COALESCE(?, 'medium'), TRY_CONVERT(DATETIMEOFFSET, ?))";
         try (Connection db = connect();
         PreparedStatement statement = db.prepareStatement(sql)) {
             statement.setString(1, title);
+            statement.setString(2, priority);
+            statement.setString(3, dueDate);
             try (ResultSet rows = statement.executeQuery()) {
                 rows.next();
                 return reply(request, HttpStatus.CREATED, rowToJson(rows));
@@ -101,9 +110,14 @@ public class TodoFunctions {
         String body = request.getBody().orElse("");
         String title = stringField(body, "title");
         Boolean isDone = boolField(body, "isDone");
+        String priority = stringField(body, "priority");
+        String dueDate = stringField(body, "dueDate");
         String sql = "UPDATE dbo.Todos "
-                + "SET Title = COALESCE(?, Title), IsDone = COALESCE(?, IsDone) "
-                + "OUTPUT inserted.Id, inserted.Title, inserted.IsDone, inserted.CreatedAt "
+                + "SET Title = COALESCE(?, Title), IsDone = COALESCE(?, IsDone), "
+                + "Priority = COALESCE(?, Priority), "
+                + "DueDate = COALESCE(TRY_CONVERT(DATETIMEOFFSET, ?), DueDate) "
+                + "OUTPUT inserted.Id, inserted.Title, inserted.IsDone, inserted.CreatedAt, "
+                + "inserted.Priority, inserted.DueDate "
                 + "WHERE Id = ?";
         try (Connection db = connect();
         PreparedStatement statement = db.prepareStatement(sql)) {
@@ -113,7 +127,9 @@ public class TodoFunctions {
             } else {
                 statement.setBoolean(2, isDone);
             }
-            statement.setString(3, id);
+            statement.setString(3, priority);
+            statement.setString(4, dueDate);
+            statement.setString(5, id);
             try (ResultSet rows = statement.executeQuery()) {
                 if (rows.next()) {
                     return reply(request, HttpStatus.OK, rowToJson(rows));
@@ -153,10 +169,22 @@ public class TodoFunctions {
     // ---- Helpers (same idea as the local TodoServer) ----------------
 
     private String rowToJson(ResultSet rows) throws SQLException {
+        String created = iso(rows.getObject("CreatedAt", OffsetDateTime.class));
+        String due = iso(rows.getObject("DueDate", OffsetDateTime.class));
         return "{\"id\":\"" + escape(rows.getString("Id").toLowerCase()) + "\","
                 + "\"title\":\"" + escape(rows.getString("Title")) + "\","
                 + "\"isDone\":" + rows.getBoolean("IsDone") + ","
-                + "\"createdAt\":\"" + escape(rows.getString("CreatedAt")) + "\"}";
+                + "\"priority\":\"" + escape(rows.getString("Priority")) + "\","
+                + "\"dueDate\":" + (due == null ? "null" : "\"" + due + "\"") + ","
+                + "\"createdAt\":\"" + created + "\"}";
+    }
+
+    // ISO 8601 in UTC, e.g. 2026-11-01T17:00:00Z (what Swift's .iso8601 decoder reads)
+    private static String iso(OffsetDateTime t) {
+        if (t == null) return null;
+        return t.withOffsetSameInstant(ZoneOffset.UTC)
+                .truncatedTo(ChronoUnit.SECONDS)
+                .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME);
     }
 
     private HttpResponseMessage reply(HttpRequestMessage<?> request,
