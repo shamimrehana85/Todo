@@ -7,9 +7,9 @@ TodoList
 
 
 
-
 ## Project flow
 
+```text
 ┌──────────────────────────────────────┐
 │ FRONT END: the iOS app               │
 │ Screens (SwiftUI) → ViewModel →      │
@@ -38,3 +38,4 @@ TodoList
                    ▼
   Back end turns the row into JSON → replies "201 Created"
   → front end adds it to the screen
+```
