@@ -8,6 +8,7 @@
 import Foundation
 import SwiftUI
 import SwiftData
+import UserNotifications // 1. Added UserNotifications import
 
 struct TodoListview: View {
     @Environment(\.modelContext) private var context
@@ -130,12 +131,20 @@ struct TodoListview: View {
                             let trimmedTitle = newTitle.trimmingCharacters(in: .whitespaces)
                             guard !trimmedTitle.isEmpty else { return }
                             
+                            let targetDueDate = showDatePicker ? dueDate : nil
+                            
                             let newItem = TodoItem(
                                 title: trimmedTitle,
                                 priority: selectedPriority,
-                                dueDate: showDatePicker ? dueDate : nil
+                                dueDate: targetDueDate
                             )
                             context.insert(newItem)
+                            
+                            // 2. Schedule notification if a due date was chosen
+                            if let targetDueDate {
+                                scheduleReminder(for: trimmedTitle, dueDate: targetDueDate)
+                            }
+                            
                             newTitle = ""
                             showDatePicker = false
                         }
@@ -189,10 +198,36 @@ struct EditTaskView: View {
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") {
+                        // 3. Schedule or refresh notification if task has a due date
+                        if let due = task.dueDate {
+                            scheduleReminder(for: task.title, dueDate: due)
+                        }
                         dismiss()
                     }
                 }
             }
+        }
+    }
+}
+
+// 4. Global helper function to schedule local push notifications
+func scheduleReminder(for title: String, dueDate: Date) {
+    let content = UNMutableNotificationContent()
+    content.title = "Task Reminder"
+    content.body = "Don't forget: '\(title)' is due today!"
+    content.sound = .default
+    
+    let calendar = Calendar.current
+    let components = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: dueDate)
+    let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: false)
+    
+    let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: trigger)
+    
+    UNUserNotificationCenter.current().add(request) { error in
+        if let error = error {
+            print("Failed to schedule notification: \(error.localizedDescription)")
+        } else {
+            print("Successfully scheduled notification for: \(title)")
         }
     }
 }
