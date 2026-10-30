@@ -80,10 +80,15 @@ public class TodoFunctions {
         }
         String priority = stringField(body, "priority");
         String dueDate = stringField(body, "dueDate");
+        priority = normalizePriority(priority);
+        if (priority != null && !isValidPriority(priority)) {
+            return reply(request, HttpStatus.BAD_REQUEST,
+                    "{\"error\":\"priority must be Low, Medium or High\"}");
+        }
         String sql = "INSERT INTO dbo.Todos (Title, Priority, DueDate) "
                 + "OUTPUT inserted.Id, inserted.Title, inserted.IsDone, inserted.CreatedAt, "
                 + "inserted.Priority, inserted.DueDate "
-                + "VALUES (?, COALESCE(?, 'medium'), TRY_CONVERT(DATETIMEOFFSET, ?))";
+                + "VALUES (?, COALESCE(?, 'Medium'), TRY_CONVERT(DATETIMEOFFSET, ?))";
         try (Connection db = connect();
         PreparedStatement statement = db.prepareStatement(sql)) {
             statement.setString(1, title);
@@ -112,6 +117,11 @@ public class TodoFunctions {
         Boolean isDone = boolField(body, "isDone");
         String priority = stringField(body, "priority");
         String dueDate = stringField(body, "dueDate");
+        priority = normalizePriority(priority);
+        if (priority != null && !isValidPriority(priority)) {
+            return reply(request, HttpStatus.BAD_REQUEST,
+                    "{\"error\":\"priority must be Low, Medium or High\"}");
+        }
         String sql = "UPDATE dbo.Todos "
                 + "SET Title = COALESCE(?, Title), IsDone = COALESCE(?, IsDone), "
                 + "Priority = COALESCE(?, Priority), "
@@ -198,6 +208,17 @@ public class TodoFunctions {
     private HttpResponseMessage sqlError(HttpRequestMessage<?> request, SQLException e) {
         return reply(request, HttpStatus.INTERNAL_SERVER_ERROR,
                 "{\"error\":\"" + escape(e.getMessage()) + "\"}");
+    }
+
+    // Accepts "high", "HIGH" or "High" and returns "High" (the wording the iOS app uses)
+    static String normalizePriority(String p) {
+        if (p == null || p.isBlank()) return null;
+        String s = p.trim().toLowerCase();
+        return Character.toUpperCase(s.charAt(0)) + s.substring(1);
+    }
+
+    static boolean isValidPriority(String p) {
+        return p.equals("Low") || p.equals("Medium") || p.equals("High");
     }
 
     static String stringField(String json, String field) {
