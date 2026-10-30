@@ -1,0 +1,520 @@
+//
+//  TodoListview.swift
+//  Todo
+//
+//  Created by participant on 2026-10-27.
+//
+
+import SwiftUI
+import SwiftData
+import PhotosUI
+
+enum TaskTheme {
+    static let purple = Color(
+        red: 0.43, green: 0.30, blue: 0.88
+    )
+
+    static let teal = Color(
+        red: 0.08, green: 0.65, blue: 0.62
+    )
+
+    static func priorityColor(_ priority: String) -> Color {
+        switch priority {
+        case "High": return .red
+        case "Low": return teal
+        default: return .orange
+        }
+    }
+}
+
+struct TodoListview: View {
+    @Environment(\.modelContext) private var context
+    @Query(sort: \TodoItem.createAT, order: .reverse)
+    private var todos: [TodoItem]
+
+    @State private var showingAdd = false
+    @State private var taskToEdit: TodoItem?
+    @State private var errorMessage: String?
+
+    private var completedCount: Int {
+        todos.filter { $0.isDone }.count
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    dashboard
+                        .listRowInsets(EdgeInsets())
+                        .listRowBackground(Color.clear)
+                }
+
+                Section("Your tasks") {
+                    ForEach(todos) { todo in
+                        HStack(alignment: .top, spacing: 12) {
+                            Button {
+                                toggleCompletion(todo)
+                            } label: {
+                                Image(
+                                    systemName: todo.isDone
+                                        ? "checkmark.circle.fill"
+                                        : "circle"
+                                )
+                                .font(.title2)
+                                .foregroundStyle(
+                                    todo.isDone
+                                        ? TaskTheme.teal
+                                        : TaskTheme.purple
+                                )
+                            }
+                            .buttonStyle(.borderless)
+                            .accessibilityLabel(
+                                todo.isDone
+                                    ? "Mark incomplete"
+                                    : "Mark complete"
+                            )
+
+                            Button {
+                                taskToEdit = todo
+                            } label: {
+                                taskDetails(todo)
+                                    .frame(
+                                        maxWidth: .infinity,
+                                        alignment: .leading
+                                    )
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .padding(.vertical, 8)
+                    }
+                    .onDelete(perform: deleteTasks)
+
+                    if todos.isEmpty {
+                        ContentUnavailableView(
+                            "A fresh start",
+                            systemImage: "sparkles",
+                            description: Text(
+                                "Add a task or turn a screenshot into a draft."
+                            )
+                        )
+                    }
+                }
+            }
+            .scrollContentBackground(.hidden)
+            .background(Color(uiColor: .systemGroupedBackground))
+            .navigationTitle("Smart Task AI")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showingAdd = true
+                    } label: {
+                        Image(systemName: "plus.circle.fill")
+                            .font(.title2)
+                    }
+                    .accessibilityLabel("Add task")
+                }
+            }
+            .safeAreaInset(edge: .bottom) {
+                Button {
+                    showingAdd = true
+                } label: {
+                    Label("Create a task", systemImage: "plus")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                }
+                .buttonStyle(.borderedProminent)
+                .padding()
+                .background(.bar)
+            }
+            .sheet(isPresented: $showingAdd) {
+                TaskEditorView(task: nil)
+            }
+            .sheet(item: $taskToEdit) { task in
+                TaskEditorView(task: task)
+            }
+            .alert(
+                "Couldn’t save change",
+                isPresented: Binding(
+                    get: { errorMessage != nil },
+                    set: { if !$0 { errorMessage = nil } }
+                )
+            ) {
+                Button("OK") { errorMessage = nil }
+            } message: {
+                Text(errorMessage ?? "")
+            }
+        }
+        .tint(TaskTheme.purple)
+    }
+
+    private var dashboard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Label("Make room for what matters", systemImage: "sparkles")
+                .font(.headline)
+
+            Text("Small steps.\nSmart progress.")
+                .font(.largeTitle.bold())
+
+            Text("\(completedCount) of \(todos.count) tasks completed")
+                .font(.subheadline)
+
+            ProgressView(
+                value: Double(completedCount),
+                total: Double(max(todos.count, 1))
+            )
+            .tint(.white)
+        }
+        .foregroundStyle(.white)
+        .padding(24)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            LinearGradient(
+                colors: [TaskTheme.purple, TaskTheme.teal],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            ),
+            in: RoundedRectangle(cornerRadius: 24)
+        )
+        .padding(.vertical, 8)
+    }
+
+    private func taskDetails(_ todo: TodoItem) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(todo.title)
+                .font(.headline)
+                .strikethrough(todo.isDone)
+                .foregroundStyle(
+                    todo.isDone ? Color.secondary : Color.primary
+                )
+
+            if !todo.taskDescription.isEmpty {
+                Text(todo.taskDescription)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+
+            if let due = todo.dueDate {
+                Label {
+                    Text(
+                        due.formatted(
+                            date: .abbreviated,
+                            time: .shortened
+                        )
+                    )
+                } icon: {
+                    Image(systemName: "clock")
+                }
+                .font(.caption)
+                .foregroundStyle(
+                    !todo.isDone && due < Date()
+                        ? Color.red
+                        : Color.secondary
+                )
+            }
+
+            Text(todo.priority)
+                .font(.caption.bold())
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .foregroundStyle(
+                    TaskTheme.priorityColor(todo.priority)
+                )
+                .background(
+                    TaskTheme.priorityColor(todo.priority).opacity(0.12),
+                    in: Capsule()
+                )
+        }
+    }
+
+    private func toggleCompletion(_ todo: TodoItem) {
+        let previousValue = todo.isDone
+        todo.isDone.toggle()
+
+        do {
+            try context.save()
+
+            let id = todo.reminderID
+            let title = todo.title
+            let due = todo.dueDate
+            let done = todo.isDone
+
+            Task {
+                do {
+                    try await TaskReminder.update(
+                        id: id,
+                        title: title,
+                        dueDate: due,
+                        isDone: done
+                    )
+                } catch {
+                    errorMessage = error.localizedDescription
+                }
+            }
+        } catch {
+            todo.isDone = previousValue
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func deleteTasks(at offsets: IndexSet) {
+        let selected = offsets.map { todos[$0] }
+        let reminderIDs = selected.map(\.reminderID)
+
+        for todo in selected {
+            context.delete(todo)
+        }
+
+        do {
+            try context.save()
+
+            for id in reminderIDs {
+                TaskReminder.cancel(id: id)
+            }
+        } catch {
+            context.rollback()
+            errorMessage = error.localizedDescription
+        }
+    }
+}
+
+struct TaskEditorView: View {
+    @Environment(\.modelContext) private var context
+    @Environment(\.dismiss) private var dismiss
+
+    let task: TodoItem?
+
+    @State private var title: String
+    @State private var details: String
+    @State private var priority: String
+    @State private var hasDueDate: Bool
+    @State private var dueDate: Date
+
+    @State private var selectedPhoto: PhotosPickerItem?
+    @State private var isImporting = false
+    @State private var isSaving = false
+    @State private var importStatus = ""
+    @State private var errorMessage: String?
+    @State private var dismissAfterAlert = false
+
+    init(task: TodoItem?) {
+        self.task = task
+        _title = State(initialValue: task?.title ?? "")
+        _details = State(initialValue: task?.taskDescription ?? "")
+        _priority = State(initialValue: task?.priority ?? "Medium")
+        _hasDueDate = State(initialValue: task?.dueDate != nil)
+        _dueDate = State(
+            initialValue: task?.dueDate
+                ?? Date().addingTimeInterval(3600)
+        )
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    PhotosPicker(
+                        selection: $selectedPhoto,
+                        matching: .images
+                    ) {
+                        Label(
+                            "Create description from screenshot",
+                            systemImage: "sparkles"
+                        )
+                    }
+                    .disabled(isImporting || isSaving)
+
+                    if isImporting {
+                        ProgressView("Reading your screenshot…")
+                    }
+
+                    if !importStatus.isEmpty {
+                        Text(importStatus)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } header: {
+                    Text("Screenshot assistant")
+                } footer: {
+                    Text(
+                        "Choose a screenshot, then review the draft before saving."
+                    )
+                }
+
+                Section("Task details") {
+                    TextField("What needs to get done?", text: $title)
+
+                    TextField(
+                        "Description",
+                        text: $details,
+                        axis: .vertical
+                    )
+                    .lineLimit(4...8)
+
+                    Picker("Priority", selection: $priority) {
+                        Text("Low").tag("Low")
+                        Text("Medium").tag("Medium")
+                        Text("High").tag("High")
+                    }
+                }
+
+                Section("Schedule") {
+                    Toggle("Set due date and reminder", isOn: $hasDueDate)
+
+                    if hasDueDate {
+                        DatePicker(
+                            "Due",
+                            selection: $dueDate,
+                            displayedComponents: [.date, .hourAndMinute]
+                        )
+
+                        if dueDate <= Date() {
+                            Text(
+                                "This date is in the past. No reminder will be scheduled."
+                            )
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                        }
+                    }
+                }
+            }
+            .navigationTitle(task == nil ? "New Task" : "Edit Task")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                        .disabled(isSaving)
+                }
+
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        Task { await saveTask() }
+                    }
+                    .disabled(
+                        title.trimmingCharacters(
+                            in: .whitespacesAndNewlines
+                        ).isEmpty || isImporting || isSaving
+                    )
+                }
+            }
+            .interactiveDismissDisabled(isSaving)
+            .onChange(of: selectedPhoto) { _, photo in
+                guard let photo else { return }
+
+                Task {
+                    await importScreenshot(photo)
+                }
+            }
+            .alert(
+                dismissAfterAlert ? "Reminder unavailable" : "Something went wrong",
+                isPresented: Binding(
+                    get: { errorMessage != nil },
+                    set: { if !$0 { errorMessage = nil } }
+                )
+            ) {
+                Button("OK") {
+                    errorMessage = nil
+
+                    if dismissAfterAlert {
+                        dismiss()
+                    }
+                }
+            } message: {
+                Text(errorMessage ?? "")
+            }
+        }
+        .tint(TaskTheme.purple)
+    }
+
+    @MainActor
+    private func importScreenshot(_ photo: PhotosPickerItem) async {
+        isImporting = true
+        importStatus = ""
+        defer {
+            isImporting = false
+            selectedPhoto = nil
+        }
+
+        do {
+            guard let data = try await photo.loadTransferable(
+                type: Data.self
+            ) else {
+                importStatus = "The selected image could not be opened."
+                return
+            }
+
+            let text = try await ScreenshotReader.extractText(from: data)
+            let draft = await TaskDraftGenerator.generate(from: text)
+
+            // Preserve any description the user already entered.
+            details = details.isEmpty
+                ? draft.description
+                : details + "\n\n" + draft.description
+
+            if title.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            ).isEmpty {
+                let firstLine = draft.description
+                    .split(whereSeparator: \.isNewline)
+                    .first
+                    .map(String.init) ?? "Screenshot task"
+
+                title = String(firstLine.prefix(80))
+            }
+
+            importStatus = draft.usedAI
+                ? "AI draft ready. Review the title and description."
+                : "Text extracted. AI rewriting is unavailable; review and edit the draft."
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func saveTask() async {
+        isSaving = true
+        defer { isSaving = false }
+
+        let item = task ?? TodoItem(title: title,
+            priority: priority)
+
+        item.title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        item.taskDescription = details.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        item.priority = priority
+        item.dueDate = hasDueDate ? dueDate : nil
+
+        if task == nil {
+            context.insert(item)
+        }
+
+        do {
+            try context.save()
+        } catch {
+            context.rollback()
+            errorMessage = error.localizedDescription
+            return
+        }
+
+        do {
+            try await TaskReminder.update(
+                id: item.reminderID,
+                title: item.title,
+                dueDate: item.dueDate,
+                isDone: item.isDone
+            )
+            dismiss()
+        } catch {
+            dismissAfterAlert = true
+            errorMessage = "Your task was saved. " + error.localizedDescription
+        }
+    }
+}
+
+#Preview {
+    TodoListview()
+        .modelContainer(for: TodoItem.self, inMemory: true)
+}
