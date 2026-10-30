@@ -6,15 +6,8 @@
 	objectVersion = 77;
 	objects = {
 
-/* Begin PBXBuildFile section */
-		D11E5D3F3094C72D009FA211 /* TodoCloudView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D11E5D3E3094C71F009FA211 /* TodoCloudView.swift */; };
-		D11E5D423094C87B009FA211 /* TodoListViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D11E5D413094C866009FA211 /* TodoListViewModel.swift */; };
-/* End PBXBuildFile section */
-
 /* Begin PBXFileReference section */
 		D11E5D253093A751009FA211 /* TodoApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TodoApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		D11E5D3E3094C71F009FA211 /* TodoCloudView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodoCloudView.swift; sourceTree = "<group>"; };
-		D11E5D413094C866009FA211 /* TodoListViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodoListViewModel.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -39,7 +32,7 @@
 		D11E5D1C3093A751009FA211 = {
 			isa = PBXGroup;
 			children = (
-				D11E5D3D3094C701009FA211 /* Views */,
+				D11E5D273093A751009FA211 /* TodoApp */,
 				D11E5D263093A751009FA211 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -50,24 +43,6 @@
 				D11E5D253093A751009FA211 /* TodoApp.app */,
 			);
 			name = Products;
-			sourceTree = "<group>";
-		};
-		D11E5D3D3094C701009FA211 /* Views */ = {
-			isa = PBXGroup;
-			children = (
-				D11E5D3E3094C71F009FA211 /* TodoCloudView.swift */,
-				D11E5D403094C837009FA211 /* ViewModels */,
-			);
-			path = Views;
-			sourceTree = "<group>";
-		};
-		D11E5D403094C837009FA211 /* ViewModels */ = {
-			isa = PBXGroup;
-			children = (
-				D11E5D413094C866009FA211 /* TodoListViewModel.swift */,
-				D11E5D273093A751009FA211 /* TodoApp */,
-			);
-			path = ViewModels;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -144,8 +119,6 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				D11E5D423094C87B009FA211 /* TodoListViewModel.swift in Sources */,
-				D11E5D3F3094C72D009FA211 /* TodoCloudView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
