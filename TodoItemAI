@@ -1,0 +1,30 @@
+//
+//  TodoItem.swift
+//  Todo
+//
+//  Created by Participant on 2026-10-28.
+//
+import Foundation
+import SwiftData
+@Model
+class TodoItem {
+    var title: String
+    var createAT: Date
+    var isDone: Bool
+    
+
+    //Defaults help existing tasks receive the new properties.
+    var taskDescription: String = ""
+    var priority: String = "Medium"
+    var dueDate: Date? = nil
+    var reminderID: String = UUID().uuidString
+    
+    init(title: String, taskDescription: String = "", priority: String, dueDate: Date? = nil) {
+        self.title = title
+        self.taskDescription = taskDescription
+        self.createAT = Date()
+        self.isDone = false
+        self.priority = priority
+        self.dueDate = dueDate
+    }
+}
