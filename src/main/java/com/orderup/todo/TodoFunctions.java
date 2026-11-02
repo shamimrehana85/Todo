@@ -10,6 +10,15 @@ import com.microsoft.azure.functions.annotation.BindingName;
 import com.microsoft.azure.functions.annotation.FunctionName;
 import com.microsoft.azure.functions.annotation.HttpTrigger;
 
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+import java.io.IOException;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
@@ -21,6 +30,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
+import java.util.Base64;
 import java.util.Optional;
 
 /**
@@ -176,6 +186,60 @@ public class TodoFunctions {
         }
     }
 
+    // ---- POST /api/scan ---------------------------------------------
+    // Receives {"imageBase64":"..."}, asks Azure AI Vision to read the text in the
+    // photo, and answers {"lines":["Buy milk","Call Sam", ...]}.
+    // The Vision key lives in app settings (VISION_ENDPOINT, VISION_KEY), never in the app.
+
+    @FunctionName("ScanTodos")
+    public HttpResponseMessage scanTodos(
+            @HttpTrigger(name = "req", methods = {HttpMethod.POST},
+            authLevel = AuthorizationLevel.ANONYMOUS, route = "scan")
+            HttpRequestMessage<Optional<String>> request,
+            final ExecutionContext context) {
+        String body = request.getBody().orElse("");
+        String imageBase64 = stringField(body, "imageBase64");
+        if (imageBase64 == null || imageBase64.isBlank()) {
+            return reply(request, HttpStatus.BAD_REQUEST,
+                    "{\"error\":\"imageBase64 is required\"}");
+        }
+
+        String endpoint = System.getenv("VISION_ENDPOINT");
+        String key = System.getenv("VISION_KEY");
+        if (endpoint == null || endpoint.isBlank() || key == null || key.isBlank()) {
+            return reply(request, HttpStatus.INTERNAL_SERVER_ERROR,
+                    "{\"error\":\"AI Vision is not configured on the server\"}");
+        }
+
+        try {
+            byte[] image = Base64.getDecoder().decode(imageBase64);
+            String url = endpoint.replaceAll("/+$", "")
+                    + "/computervision/imageanalysis:analyze?api-version=2024-02-01&features=read";
+
+            HttpRequest visionRequest = HttpRequest.newBuilder(URI.create(url))
+                    .header("Ocp-Apim-Subscription-Key", key)
+                    .header("Content-Type", "application/octet-stream")
+                    .POST(HttpRequest.BodyPublishers.ofByteArray(image))
+                    .build();
+            HttpResponse<String> visionResponse = HttpClient.newHttpClient()
+                    .send(visionRequest, HttpResponse.BodyHandlers.ofString());
+
+            if (visionResponse.statusCode() / 100 != 2) {
+                context.getLogger().warning("Vision error: " + visionResponse.body());
+                return reply(request, HttpStatus.INTERNAL_SERVER_ERROR,
+                        "{\"error\":\"AI Vision replied with status "
+                                + visionResponse.statusCode() + "\"}");
+            }
+            return reply(request, HttpStatus.OK, linesToJson(visionResponse.body()));
+        } catch (IllegalArgumentException e) {
+            return reply(request, HttpStatus.BAD_REQUEST,
+                    "{\"error\":\"imageBase64 is not valid base64\"}");
+        } catch (IOException | InterruptedException e) {
+            return reply(request, HttpStatus.INTERNAL_SERVER_ERROR,
+                    "{\"error\":\"could not reach AI Vision\"}");
+        }
+    }
+
     // ---- Helpers (same idea as the local TodoServer) ----------------
 
     private String rowToJson(ResultSet rows) throws SQLException {
@@ -208,6 +272,27 @@ public class TodoFunctions {
     private HttpResponseMessage sqlError(HttpRequestMessage<?> request, SQLException e) {
         return reply(request, HttpStatus.INTERNAL_SERVER_ERROR,
                 "{\"error\":\"" + escape(e.getMessage()) + "\"}");
+    }
+
+    // Pulls every recognised line of text out of the Vision response:
+    // { "readResult": { "blocks": [ { "lines": [ { "text": "..." } ] } ] } }
+    static String linesToJson(String visionJson) {
+        JsonArray found = new JsonArray();
+        JsonObject root = JsonParser.parseString(visionJson).getAsJsonObject();
+        JsonObject readResult = root.getAsJsonObject("readResult");
+        if (readResult != null && readResult.has("blocks")) {
+            for (JsonElement block : readResult.getAsJsonArray("blocks")) {
+                JsonObject blockObject = block.getAsJsonObject();
+                if (!blockObject.has("lines")) continue;
+                for (JsonElement line : blockObject.getAsJsonArray("lines")) {
+                    String text = line.getAsJsonObject().get("text").getAsString().trim();
+                    if (!text.isEmpty()) found.add(text);
+                }
+            }
+        }
+        JsonObject out = new JsonObject();
+        out.add("lines", found);
+        return out.toString();
     }
 
     // Accepts "high", "HIGH" or "High" and returns "High" (the wording the iOS app uses)
