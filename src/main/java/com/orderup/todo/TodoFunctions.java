@@ -56,7 +56,7 @@ public class TodoFunctions {
             authLevel = AuthorizationLevel.ANONYMOUS, route = "todos")
             HttpRequestMessage<Optional<String>> request,
             final ExecutionContext context) {
-        String sql = "SELECT Id, Title, IsDone, CreatedAt, Priority, DueDate FROM dbo.Todos ORDER BY CreatedAt";
+        String sql = "SELECT Id, Title, IsDone, CreatedAt, Priority, DueDate, Description FROM dbo.Todos ORDER BY CreatedAt";
         try (Connection db = connect();
         Statement statement = db.createStatement();
         ResultSet rows = statement.executeQuery(sql)) {
@@ -90,20 +90,25 @@ public class TodoFunctions {
         }
         String priority = stringField(body, "priority");
         String dueDate = stringField(body, "dueDate");
+        String description = stringField(body, "description");
+        String clientId = stringField(body, "id");   // optional: the app may choose the id
         priority = normalizePriority(priority);
         if (priority != null && !isValidPriority(priority)) {
             return reply(request, HttpStatus.BAD_REQUEST,
                     "{\"error\":\"priority must be Low, Medium or High\"}");
         }
-        String sql = "INSERT INTO dbo.Todos (Title, Priority, DueDate) "
+        String sql = "INSERT INTO dbo.Todos (Id, Title, Priority, DueDate, Description) "
                 + "OUTPUT inserted.Id, inserted.Title, inserted.IsDone, inserted.CreatedAt, "
-                + "inserted.Priority, inserted.DueDate "
-                + "VALUES (?, COALESCE(?, 'Medium'), TRY_CONVERT(DATETIMEOFFSET, ?))";
+                + "inserted.Priority, inserted.DueDate, inserted.Description "
+                + "VALUES (COALESCE(TRY_CONVERT(UNIQUEIDENTIFIER, ?), NEWID()), ?, "
+                + "COALESCE(?, 'Medium'), TRY_CONVERT(DATETIMEOFFSET, ?), COALESCE(?, ''))";
         try (Connection db = connect();
         PreparedStatement statement = db.prepareStatement(sql)) {
-            statement.setString(1, title);
-            statement.setString(2, priority);
-            statement.setString(3, dueDate);
+            statement.setString(1, clientId);
+            statement.setString(2, title);
+            statement.setString(3, priority);
+            statement.setString(4, dueDate);
+            statement.setString(5, description);
             try (ResultSet rows = statement.executeQuery()) {
                 rows.next();
                 return reply(request, HttpStatus.CREATED, rowToJson(rows));
@@ -127,6 +132,7 @@ public class TodoFunctions {
         Boolean isDone = boolField(body, "isDone");
         String priority = stringField(body, "priority");
         String dueDate = stringField(body, "dueDate");
+        String description = stringField(body, "description");
         priority = normalizePriority(priority);
         if (priority != null && !isValidPriority(priority)) {
             return reply(request, HttpStatus.BAD_REQUEST,
@@ -135,9 +141,10 @@ public class TodoFunctions {
         String sql = "UPDATE dbo.Todos "
                 + "SET Title = COALESCE(?, Title), IsDone = COALESCE(?, IsDone), "
                 + "Priority = COALESCE(?, Priority), "
-                + "DueDate = COALESCE(TRY_CONVERT(DATETIMEOFFSET, ?), DueDate) "
+                + "DueDate = COALESCE(TRY_CONVERT(DATETIMEOFFSET, ?), DueDate), "
+                + "Description = COALESCE(?, Description) "
                 + "OUTPUT inserted.Id, inserted.Title, inserted.IsDone, inserted.CreatedAt, "
-                + "inserted.Priority, inserted.DueDate "
+                + "inserted.Priority, inserted.DueDate, inserted.Description "
                 + "WHERE Id = ?";
         try (Connection db = connect();
         PreparedStatement statement = db.prepareStatement(sql)) {
@@ -149,7 +156,8 @@ public class TodoFunctions {
             }
             statement.setString(3, priority);
             statement.setString(4, dueDate);
-            statement.setString(5, id);
+            statement.setString(5, description);
+            statement.setString(6, id);
             try (ResultSet rows = statement.executeQuery()) {
                 if (rows.next()) {
                     return reply(request, HttpStatus.OK, rowToJson(rows));
@@ -250,6 +258,7 @@ public class TodoFunctions {
                 + "\"isDone\":" + rows.getBoolean("IsDone") + ","
                 + "\"priority\":\"" + escape(rows.getString("Priority")) + "\","
                 + "\"dueDate\":" + (due == null ? "null" : "\"" + due + "\"") + ","
+                + "\"description\":\"" + escape(rows.getString("Description")) + "\","
                 + "\"createdAt\":\"" + created + "\"}";
     }
 
@@ -306,24 +315,15 @@ public class TodoFunctions {
         return p.equals("Low") || p.equals("Medium") || p.equals("High");
     }
 
+    // Reads one text field from the request JSON (handles \n, quotes and unicode correctly)
     static String stringField(String json, String field) {
-        int at = json.indexOf("\"" + field + "\"");
-        if (at < 0) return null;
-        int colon = json.indexOf(':', at);
-        int open = json.indexOf('"', colon + 1);
-        if (open < 0) return null;
-        StringBuilder value = new StringBuilder();
-        for (int i = open + 1; i < json.length(); i++) {
-            char c = json.charAt(i);
-            if (c == '\\' && i + 1 < json.length()) {
-                value.append(json.charAt(++i));
-            } else if (c == '"') {
-                return value.toString();
-            } else {
-                value.append(c);
-            }
+        try {
+            JsonElement value = JsonParser.parseString(json).getAsJsonObject().get(field);
+            if (value == null || value.isJsonNull()) return null;
+            return value.getAsString();
+        } catch (RuntimeException e) {
+            return null;
         }
-        return null;
     }
 
     static Boolean boolField(String json, String field) {
@@ -338,6 +338,19 @@ public class TodoFunctions {
 
     static String escape(String s) {
         if (s == null) return "";
-        return s.replace("\\", "\\\\").replace("\"", "\\\"");
+        StringBuilder out = new StringBuilder();
+        for (char c : s.toCharArray()) {
+            switch (c) {
+                case '\\': out.append("\\\\"); break;
+                case '"': out.append("\\\""); break;
+                case '\n': out.append("\\n"); break;
+                case '\r': out.append("\\r"); break;
+                case '\t': out.append("\\t"); break;
+                default:
+                    if (c < 0x20) out.append(String.format("\\u%04x", (int) c));
+                    else out.append(c);
+            }
+        }
+        return out.toString();
     }
 }
